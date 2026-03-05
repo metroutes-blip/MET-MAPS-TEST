@@ -5,7 +5,7 @@
 'use strict';
 
 // ── Version ───────────────────────────────────
-const APP_VERSION = 'v3.7';
+const APP_VERSION = 'v4.0';
 
 // ── Google Sheets published CSV URL ───────────
 // Dispatcher: File → Share → Publish to web → CSV → paste the URL here
@@ -111,18 +111,19 @@ const geocodeFixList = document.getElementById('geocode-fix-list');
 const geocodeFixClose = document.getElementById('geocode-fix-close');
 const engineerFilterSel = document.getElementById('engineer-filter');
 const btnDueToday = document.getElementById('btn-due-today');
-const btnRefresh  = document.getElementById('btn-refresh');
-const btnLabels          = document.getElementById('btn-labels');
-const btnAddAddress      = document.getElementById('btn-add-address');
-const addAddressModal    = document.getElementById('add-address-modal');
-const addAddressInput    = document.getElementById('add-address-input');
-const addAddressStatus   = document.getElementById('add-address-status');
-const btnAddAddrSubmit   = document.getElementById('btn-add-address-submit');
-const btnAddAddrCancel   = document.getElementById('btn-add-address-cancel');
-const detailGroupNav   = document.getElementById('detail-group-nav');
+const btnRefresh = document.getElementById('btn-refresh');
+const btnGarminExport = document.getElementById('btn-garmin-export');
+const btnLabels = document.getElementById('btn-labels');
+const btnAddAddress = document.getElementById('btn-add-address');
+const addAddressModal = document.getElementById('add-address-modal');
+const addAddressInput = document.getElementById('add-address-input');
+const addAddressStatus = document.getElementById('add-address-status');
+const btnAddAddrSubmit = document.getElementById('btn-add-address-submit');
+const btnAddAddrCancel = document.getElementById('btn-add-address-cancel');
+const detailGroupNav = document.getElementById('detail-group-nav');
 const detailGroupLabel = document.getElementById('detail-group-label');
-const btnDetailPrev    = document.getElementById('detail-prev');
-const btnDetailNext    = document.getElementById('detail-next');
+const btnDetailPrev = document.getElementById('detail-prev');
+const btnDetailNext = document.getElementById('detail-next');
 const toast = document.getElementById('toast');
 const btnComplete = document.getElementById('btn-complete');
 const overdueWarning = document.getElementById('detail-overdue-warning');
@@ -248,6 +249,13 @@ function savePoints() {
 }
 function loadPoints() {
   try { return JSON.parse(localStorage.getItem(POINTS_KEY) || '[]'); } catch (_) { return []; }
+}
+
+// Strip trailing city name from a street address string for display
+function stripCityFromAddr(addr, city) {
+  if (!city) return addr;
+  const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return addr.replace(new RegExp(',?\\s*' + escaped + '\\s*$', 'i'), '').trim();
 }
 
 // ── Address cleaning for geocoding ───────────
@@ -646,7 +654,8 @@ function placeMarkers(points, zoomToFit = true) {
       .bindPopup(popup, { autoClose: false, closeOnClick: false });
 
     if (addr) {
-      marker.bindTooltip(addr, {
+      const city = (row['City'] || '').trim();
+      marker.bindTooltip(stripCityFromAddr(addr, city), {
         permanent: true, direction: 'bottom', className: 'address-label', offset: [0, 4],
       });
     }
@@ -1128,6 +1137,33 @@ btnAddAddrSubmit.addEventListener('click', async () => {
 
 addAddressInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnAddAddrSubmit.click();
+});
+
+btnGarminExport.addEventListener('click', () => {
+  const points = getFilteredPoints();
+  if (!points.length) {
+    showToast('No work orders to export', true);
+    return;
+  }
+  const wpts = points.map(({ lat, lng, row }) => {
+    const addr = stripCityFromAddr((row['Street Address'] || '').trim(), (row['City'] || '').trim());
+    const wo = (row['Workorder'] || '').trim();
+    const name = addr || wo || 'Work Order';
+    const desc = wo ? `WO# ${wo}` : 'Added Address';
+    return `  <wpt lat="${lat}" lon="${lng}">\n    <name>${esc(name)}</name>\n    <desc>${esc(desc)}</desc>\n  </wpt>`;
+  }).join('\n');
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="WorkOrderMap" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts}\n</gpx>`;
+  const date = new Date().toLocaleDateString('en-CA');
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `workorders-${date}.gpx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`${points.length} waypoint${points.length !== 1 ? 's' : ''} exported`);
 });
 
 btnLabels.addEventListener('click', () => {
